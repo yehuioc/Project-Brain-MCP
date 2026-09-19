@@ -6,109 +6,84 @@ import os
 from pathlib import Path
 
 from mcp.server import MCPServer
-from .core import ProjectBrain
+from .core import ProjectBridge
 
 
 def default_config_path() -> Path:
     env = os.environ.get("PROJECT_BRAIN_CONFIG")
     if env:
         return Path(env).expanduser().resolve()
-    return (Path(__file__).resolve().parents[1] / "data" / "workspaces.json").resolve()
+    return (Path(__file__).resolve().parents[1] / "data" / "projects.json").resolve()
 
 
-brain = ProjectBrain(default_config_path())
+bridge = ProjectBridge(default_config_path())
 
 mcp = MCPServer(
-    "Project Brain Workspace",
+    "Project Brain MCP - Full Project Bridge",
     instructions=(
-        "Read-only workspace context server. Start with list_workspaces, then list_workspace_areas or get_workspace_overview. "
-        "Only explicitly configured areas and root files are readable. Git tools are read-only. "
-        "Never claim a write/deploy action occurred: this server exposes no write, shell, delete, commit, push, or SQL tools."
+        "Read-only bridge to explicitly registered local Git projects. "
+        "Use get_project_files to see the complete Git-defined project surface, or read_project_snapshot repeatedly until complete=true to consume the full current textual project snapshot. "
+        "The server does not search, summarize, rank importance, write files, run arbitrary shell commands, commit, push, fetch, deploy, or mutate projects."
     ),
 )
 
 
 @mcp.tool()
-def list_workspaces() -> dict:
-    """List registered top-level workspaces and basic availability."""
-    return brain.list_workspaces()
+def list_projects() -> dict:
+    """List the local Git projects explicitly registered for MCP read access."""
+    return bridge.list_projects()
 
 
 @mcp.tool()
-def list_workspace_areas(workspace: str) -> dict:
-    """List the explicitly allowed areas and root context files inside a workspace."""
-    return brain.list_workspace_areas(workspace)
+def get_project_files(project: str) -> dict:
+    """List the complete Git-defined project surface: tracked files plus untracked non-ignored files."""
+    return bridge.get_project_files(project)
 
 
 @mcp.tool()
-def get_workspace_overview(workspace: str) -> dict:
-    """Get a compact overview of configured areas, recent files, root context files, and root Git presence."""
-    return brain.get_workspace_overview(workspace)
+def read_file(project: str, path: str, mode: str = "auto") -> dict:
+    """Read one Git-visible project file. auto returns text for text files and base64 for binary files."""
+    return bridge.read_file(project, path, mode)
 
 
 @mcp.tool()
-def find_workspace_files(workspace: str, pattern: str = "*", area: str = "*", limit: int = 100) -> dict:
-    """Find allow-listed text files across one configured area or all areas. area='*' searches all selected areas."""
-    return brain.find_workspace_files(workspace, pattern, area, limit)
+def read_project_snapshot(
+    project: str,
+    cursor: int = 0,
+    max_chars: int | None = None,
+    snapshot_id: str | None = None,
+) -> dict:
+    """Read the full current textual project snapshot in deterministic chunks. Continue with next_cursor until complete=true. Pass snapshot_id on subsequent calls to detect mid-read local changes."""
+    return bridge.read_project_snapshot(project, cursor, max_chars, snapshot_id)
 
 
 @mcp.tool()
-def read_workspace_file(workspace: str, relative_path: str, start_line: int = 1, max_lines: int = 300) -> dict:
-    """Read a bounded line range from a text file that is inside an allowed area or configured root_files."""
-    return brain.read_workspace_file(workspace, relative_path, start_line, max_lines)
+def get_local_git_status(project: str) -> dict:
+    """Read current branch, HEAD, working-tree status, and local ahead/behind information without fetching from the network."""
+    return bridge.get_local_git_status(project)
 
 
 @mcp.tool()
-def search_workspace_text(workspace: str, query: str, area: str = "*", scope: str = "all", limit: int = 30) -> dict:
-    """Keyword-search across selected workspace areas. scope: all/docs/logs/tests/code."""
-    return brain.search_workspace_text(workspace, query, area, scope, limit)
+def get_local_diff(project: str, max_chars: int = 120000) -> dict:
+    """Read current unstaged/staged diffs plus the list of untracked non-ignored files."""
+    return bridge.get_local_diff(project, max_chars)
 
 
 @mcp.tool()
-def list_git_repositories(workspace: str, area: str = "*", max_depth: int = 6, limit: int = 100) -> dict:
-    """Discover the workspace-root Git repository and nested Git repositories under selected areas."""
-    return brain.list_git_repositories(workspace, area, max_depth, limit)
-
-
-@mcp.tool()
-def get_git_repository_state(workspace: str, repo_path: str = ".") -> dict:
-    """Read branch/status/latest commit for a discovered Git repository. repo_path='.' means workspace root."""
-    return brain.get_git_repository_state(workspace, repo_path)
-
-
-@mcp.tool()
-def get_git_history(workspace: str, repo_path: str = ".", limit: int = 20) -> dict:
-    """Read recent commits from a workspace-root or nested allowed Git repository."""
-    return brain.get_git_history(workspace, repo_path, limit)
-
-
-@mcp.tool()
-def get_git_diff(workspace: str, repo_path: str = ".", target: str = "working", max_chars: int = 30000) -> dict:
-    """Read a repository diff. target: working, staged, HEAD, or a safe Git revision string."""
-    return brain.get_git_diff(workspace, repo_path, target, max_chars)
-
-
-@mcp.tool()
-def get_recent_errors(workspace: str, area: str = "*", limit: int = 50) -> dict:
-    """Scan log-like files across selected areas for recent error/exception/traceback/failure lines."""
-    return brain.get_recent_errors(workspace, area, limit)
-
-
-@mcp.tool()
-def get_test_results(workspace: str, area: str = "*", limit: int = 30) -> dict:
-    """Locate test result files across selected areas and return bounded previews."""
-    return brain.get_test_results(workspace, area, limit)
+def get_local_commits(project: str, limit: int = 50) -> dict:
+    """Read commits ahead of the locally stored upstream tracking ref; if no upstream exists, return recent local history with that limitation stated."""
+    return bridge.get_local_commits(project, limit)
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Project Brain Workspace MCP")
+    parser = argparse.ArgumentParser(description="Project Brain MCP v0.3 - Full Project Bridge")
     parser.add_argument("--transport", choices=["stdio", "streamable-http"], default="stdio")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--show-config", action="store_true")
     args = parser.parse_args()
     if args.show_config:
-        print(json.dumps({"config": str(default_config_path()), "workspaces": brain.list_workspaces()}, ensure_ascii=False, indent=2))
+        print(json.dumps({"config": str(default_config_path()), **bridge.list_projects()}, ensure_ascii=False, indent=2))
         return
     if args.transport == "stdio":
         mcp.run(transport="stdio")

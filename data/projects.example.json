@@ -1,0 +1,15 @@
+{
+  "projects": [
+    {
+      "name": "fortune-light",
+      "path": "E:\\workbench\\fortune-light",
+      "description": "Example local Git project"
+    }
+  ],
+  "security": {
+    "snapshot_chunk_chars": 80000,
+    "max_snapshot_chunk_chars": 200000,
+    "max_text_file_bytes": 20000000,
+    "max_binary_file_bytes": 20000000
+  }
+}

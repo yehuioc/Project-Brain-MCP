@@ -18,10 +18,10 @@ python -m pip install -r requirements.txt || exit /b 1
 echo [4/4] Running self tests...
 python scripts\self_test.py || exit /b 1
 python scripts\mcp_protocol_test.py || exit /b 1
-if not exist data\workspaces.json copy /Y data\workspaces.example.json data\workspaces.json >nul
+if not exist data\projects.json copy /Y data\projects.example.json data\projects.json >nul
 echo.
 echo Installation complete.
-echo Next: run configure_workspace.bat, then start_http.bat or configure your MCP host for stdio.
+echo Next: run configure_project.bat, then start_http.bat or configure your MCP host for stdio.
 pause
 exit /b 0
 :nopython

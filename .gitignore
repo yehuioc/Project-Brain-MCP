@@ -4,7 +4,7 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
-data/workspaces.json
+data/projects.json
 .env
 .env.*
 *.pem

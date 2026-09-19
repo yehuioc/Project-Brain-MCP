@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import base64
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -8,79 +10,113 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from project_brain.core import ProjectBrain
+from project_brain.core import ProjectBridge
 
 
-def git(*args: str) -> None:
-    subprocess.run(["git", *args], capture_output=True, check=False)
+def run(*args: str, cwd: Path | None = None) -> subprocess.CompletedProcess:
+    return subprocess.run(args, cwd=cwd, capture_output=True, text=True, check=False)
+
+
+def git(repo: Path, *args: str) -> None:
+    cp = run("git", "-C", str(repo), *args)
+    if cp.returncode != 0:
+        raise RuntimeError(cp.stderr)
 
 
 def main() -> None:
     with tempfile.TemporaryDirectory() as td:
-        root = Path(td) / "agent-v2"
-        (root / "memory").mkdir(parents=True)
-        (root / "workbench" / "demo").mkdir(parents=True)
-        (root / "secrets").mkdir(parents=True)
-        (root / "AGENTS.md").write_text("# Agent V2\nRead memory and workbench when needed.\n", encoding="utf-8")
-        (root / "memory" / "MEMORY.md").write_text("# Memory\nImportant project decision: use MCP.\n", encoding="utf-8")
-        (root / "workbench" / "demo" / "README.md").write_text("# Demo\nTODO: wire workspace MCP\n", encoding="utf-8")
-        (root / "workbench" / "demo" / "run.log").write_text("INFO start\nERROR demo failure\n", encoding="utf-8")
-        (root / "secrets" / "password.txt").write_text("do-not-read", encoding="utf-8")
-        (root / ".env").write_text("TOKEN=secret", encoding="utf-8")
+        td_path = Path(td)
+        repo = td_path / "demo"
+        repo.mkdir()
+        git(repo, "init")
+        git(repo, "config", "user.email", "test@example.invalid")
+        git(repo, "config", "user.name", "Project Brain Test")
 
-        git("init", str(root))
-        git("-C", str(root), "config", "user.email", "test@example.invalid")
-        git("-C", str(root), "config", "user.name", "Project Brain Test")
-        git("-C", str(root), "add", "AGENTS.md", "memory/MEMORY.md")
-        git("-C", str(root), "commit", "-m", "workspace root")
+        (repo / ".gitignore").write_text("ignored.log\n", encoding="utf-8")
+        (repo / "README.md").write_text("# Demo\nVersion one.\n", encoding="utf-8")
+        (repo / "src").mkdir()
+        (repo / "src" / "app.py").write_text("print('v1')\n", encoding="utf-8")
+        (repo / "asset.bin").write_bytes(b"\x00\x01\x02binary")
+        git(repo, "add", ".")
+        git(repo, "commit", "-m", "initial")
 
-        demo = root / "workbench" / "demo"
-        git("init", str(demo))
-        git("-C", str(demo), "config", "user.email", "test@example.invalid")
-        git("-C", str(demo), "config", "user.name", "Project Brain Test")
-        git("-C", str(demo), "add", ".")
-        git("-C", str(demo), "commit", "-m", "demo initial")
+        # Current local state differs from HEAD: one modified file and one valid untracked file.
+        (repo / "src" / "app.py").write_text("print('v2 local')\n", encoding="utf-8")
+        (repo / "new_feature.py").write_text("FEATURE = True\n", encoding="utf-8")
+        (repo / "ignored.log").write_text("must not be exposed\n", encoding="utf-8")
 
-        cfg = Path(td) / "workspaces.json"
+        outside = td_path / "outside.txt"
+        outside.write_text("outside secret\n", encoding="utf-8")
+        symlink_created = False
+        try:
+            (repo / "outside-link.txt").symlink_to(outside)
+            # Git-visible because untracked and not ignored.
+            symlink_created = True
+        except OSError:
+            pass
+
+        cfg = td_path / "projects.json"
         cfg.write_text(json.dumps({
-            "workspaces": [{
-                "name": "agent-v2", "path": str(root),
-                "areas": [
-                    {"name": "memory", "path": "memory"},
-                    {"name": "workbench", "path": "workbench"}
-                ],
-                "root_files": ["AGENTS.md"]
-            }],
-            "security": {"excluded_dirs": ["secrets"]}
+            "projects": [{"name": "demo", "path": str(repo), "description": "test repo"}],
+            "security": {"snapshot_chunk_chars": 120, "max_snapshot_chunk_chars": 1000}
         }, ensure_ascii=False), encoding="utf-8")
 
-        b = ProjectBrain(cfg)
-        assert b.list_workspaces()["workspaces"][0]["name"] == "agent-v2"
-        assert {x["name"] for x in b.list_workspace_areas("agent-v2")["areas"]} == {"memory", "workbench"}
-        assert "Agent V2" in b.read_workspace_file("agent-v2", "AGENTS.md")["content"]
-        assert b.search_workspace_text("agent-v2", "Important project decision", "memory")["hits"]
-        assert b.search_workspace_text("agent-v2", "TODO", "workbench", "docs")["hits"]
-        assert b.get_recent_errors("agent-v2", "workbench")["errors"]
-        repos = {r["path"] for r in b.list_git_repositories("agent-v2")["repositories"]}
-        assert "." in repos
-        assert "workbench/demo" in repos
-        assert b.get_git_repository_state("agent-v2", ".")["latest_commit"]
-        assert b.get_git_repository_state("agent-v2", "workbench/demo")["latest_commit"]
+        b = ProjectBridge(cfg)
+        assert b.list_projects()["projects"][0]["name"] == "demo"
+
+        manifest = b.get_project_files("demo")
+        paths = {x["path"] for x in manifest["files"]}
+        assert "README.md" in paths
+        assert "src/app.py" in paths
+        assert "new_feature.py" in paths
+        assert "ignored.log" not in paths
+        assert ".git/HEAD" not in paths
+
+        assert "v2 local" in b.read_file("demo", "src/app.py")["content"]
+        binary = b.read_file("demo", "asset.bin")
+        assert binary["encoding"] == "base64"
+        assert base64.b64decode(binary["content"]) == b"\x00\x01\x02binary"
+
         try:
-            b.read_workspace_file("agent-v2", "../outside.txt")
+            b.read_file("demo", "../outside.txt")
             raise AssertionError("Path traversal should have failed")
         except ValueError:
             pass
-        try:
-            b.read_workspace_file("agent-v2", "secrets/password.txt")
-            raise AssertionError("Excluded directory should have failed")
-        except ValueError:
-            pass
-        try:
-            b.read_workspace_file("agent-v2", ".env")
-            raise AssertionError("Unconfigured/excluded root file should have failed")
-        except ValueError:
-            pass
+        if symlink_created:
+            linked = {x["path"]: x for x in manifest["files"]}.get("outside-link.txt")
+            assert linked and linked["kind"] == "blocked-link"
+
+        first = b.read_project_snapshot("demo", max_chars=120)
+        assert first["snapshot_id"]
+        chunks = [first["content"]]
+        cursor = first["next_cursor"]
+        while cursor is not None:
+            part = b.read_project_snapshot("demo", cursor=cursor, max_chars=120, snapshot_id=first["snapshot_id"])
+            assert "error" not in part
+            chunks.append(part["content"])
+            cursor = part["next_cursor"]
+        whole = "".join(chunks)
+        assert "print('v2 local')" in whole
+        assert "FEATURE = True" in whole
+        assert "must not be exposed" not in whole
+        assert "asset.bin" in whole
+
+        status = b.get_local_git_status("demo")
+        assert status["head"]
+        assert any("src/app.py" in line for line in status["status_lines"])
+        diff = b.get_local_diff("demo")
+        assert "v2 local" in (diff["unstaged_diff"] or "")
+        assert "new_feature.py" in diff["untracked_files"]
+
+        commits = b.get_local_commits("demo")
+        assert commits["commits"]
+        assert commits["classification"] == "recent-local-history-no-upstream"
+
+        # If the project changes during paged snapshot reading, the old snapshot id must be rejected.
+        (repo / "README.md").write_text("# Demo\nChanged during read.\n", encoding="utf-8")
+        changed = b.read_project_snapshot("demo", cursor=0, max_chars=120, snapshot_id=first["snapshot_id"])
+        assert changed.get("error") == "snapshot_changed"
+
         print("SELF_TEST_PASS")
 
 
