@@ -1,6 +1,6 @@
 # 将本地项目连接到 ChatGPT
 
-本机项目位置：`E:\agentv2\workbench\projects\project-brain-mcp`。本服务只读取 `data/projects.json` 中明确登记的 Git 仓库；该配置是项目名单的唯一维护位置，不会自动开放整个 `agentv2`。
+本机项目位置：`E:\agentv2\workbench\projects\project-brain-mcp`。本服务只读取 `data/projects.json` 中明确登记的 Git 仓库或普通目录；该配置是来源名单的唯一维护位置，不会自动开放整个 `agentv2`。授权、登记与网页阅读策略统一见 [项目 README](README.md)。
 
 ## 本机启动与停止
 

@@ -30,8 +30,12 @@ mcp = MCPServer(
         "Read-only bridge to explicitly registered local Git projects and directory sources. "
         "First use list_projects and select a source by name. Never read unrelated sources. "
         "Git sources expose the complete Git-defined project surface. For directory sources, get_project_files lists immediate children with path/cursor/limit; it does not consult Git. "
-        "Browse a library and select the requested subdirectory or file; do not snapshot the whole library unless requested. "
+        "Inspect file listings first, then choose original files or scopes needed for the user's current task. "
+        "Keep full access available: do not automatically exclude docs, vendor or historical evidence, and do not require a Codex pre-summary or semantic filter. "
+        "Use read_file for selected Git files; path-scoped snapshots are only supported for directory sources. "
+        "Read a full snapshot when the user requests it or the task needs the entire scope, rather than loading every source for every task. "
         "Use read_project_snapshot repeatedly with the same project, path and snapshot_id until complete=true for all text in a selected scope. "
+        "Pagination and hashes demonstrate complete transfer, not simultaneous model context capacity or understanding. State the scope actually read and material unread gaps; never claim full understanding from complete=true alone. "
         "Directory sources have no Git tools and never expose ancestor repository history. "
         "The server does not search, summarize, rank importance, write files, run arbitrary shell commands, commit, push, fetch, deploy, or mutate projects."
     ),
@@ -54,7 +58,7 @@ def list_projects() -> dict:
 
 @mcp.tool(annotations=READ_ONLY)
 def get_project_files(project: str, path: str = "", cursor: int = 0, limit: int = 200) -> dict:
-    """Git: complete tracked + untracked non-ignored file surface. Directory: immediate children of path, paged via next_cursor until complete=true; enter a child directory by passing its path. Directory listings do not read file contents."""
+    """Inspect files before choosing what the current task needs. Git: complete tracked + untracked non-ignored file surface. Directory: immediate children of path, paged via next_cursor until complete=true; enter a child directory by passing its path. Directory listings do not read file contents."""
     return call_bridge(bridge.get_project_files, project, path, cursor, limit)
 
 
@@ -72,7 +76,7 @@ def read_project_snapshot(
     snapshot_id: str | None = None,
     path: str = "",
 ) -> dict:
-    """Read a full text snapshot, optionally scoped to path for a directory source. Keep project/path/snapshot_id unchanged while following next_cursor to complete=true. Directory binary entries are listed without reading/hashing all binary bytes. Exclusions and size-limit errors are explicit; no silent truncation."""
+    """Read a full text snapshot when the user requests it or the task needs the entire scope; use read_file for selected files. path scoping is only for directory sources. Keep project/path/snapshot_id unchanged while following next_cursor to complete=true. Completion proves transfer, not model comprehension; report the actual read scope and material unread gaps. Directory binary entries are listed without reading/hashing all binary bytes. Exclusions and size-limit errors are explicit; no silent truncation."""
     return call_bridge(bridge.read_project_snapshot, project, cursor, max_chars, snapshot_id, path)
 
 
