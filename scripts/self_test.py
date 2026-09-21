@@ -24,7 +24,9 @@ def git(repo: Path, *args: str) -> None:
 
 
 def main() -> None:
-    with tempfile.TemporaryDirectory() as td:
+    temp_root = ROOT / ".runtime" / "tmp"
+    temp_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=temp_root) as td:
         td_path = Path(td)
         repo = td_path / "demo"
         repo.mkdir()
@@ -82,6 +84,12 @@ def main() -> None:
             raise AssertionError("Path traversal should have failed")
         except ValueError:
             pass
+        for invalid in ("/README.md", str(repo / "README.md"), ".git/config", ".GIT/config"):
+            try:
+                b.read_file("demo", invalid)
+                raise AssertionError(f"Absolute/internal Git path should fail: {invalid}")
+            except ValueError:
+                pass
         if symlink_created:
             linked = {x["path"]: x for x in manifest["files"]}.get("outside-link.txt")
             assert linked and linked["kind"] == "blocked-link"
@@ -107,6 +115,15 @@ def main() -> None:
         diff = b.get_local_diff("demo")
         assert "v2 local" in (diff["unstaged_diff"] or "")
         assert "new_feature.py" in diff["untracked_files"]
+
+        # Repository-defined helpers must never run through read-only MCP calls.
+        (repo / ".gitattributes").write_text("*.py diff=forbidden\n", encoding="utf-8")
+        git(repo, "config", "diff.forbidden.textconv", "project-brain-forbidden-command")
+        git(repo, "config", "core.fsmonitor", "project-brain-forbidden-command")
+        assert "v2 local" in b.get_local_diff("demo")["unstaged_diff"]
+        assert b.get_local_git_status("demo")["head"]
+        (repo / "src" / "app.py").write_text("x" * 5000 + "\n", encoding="utf-8")
+        assert b.get_local_diff("demo", max_chars=6000)["truncated"]
 
         commits = b.get_local_commits("demo")
         assert commits["commits"]

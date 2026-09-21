@@ -1,8 +1,24 @@
-# Project Brain MCP v0.3 — Full Project Bridge
+---
+git_mode: independent
+---
 
-v0.3 是一次减法重构。它不再尝试理解整个 Agent V2、不建立 Workspace Brain、不做搜索/索引/摘要/Memory/Repo Map。
+# Project Brain MCP：本地完整项目只读桥接
+
+本项目由网页 GPT 生成初版，本地 Codex 负责安装、环境适配与真实验证。MCP 只搬运项目原文，不做搜索、摘要或重要性判断。
 
 它只有一个职责：**让网页端 GPT 对你明确授权的本地 Git 项目获得完整、只读、可验证的当前项目视野。**
+
+## 本机使用入口
+
+存储位置：`E:\agentv2\workbench\projects\project-brain-mcp`。保留独立上游 Git 历史，来源提交为 `74bcd610d1410595635591bc384a207775c66925`。
+
+- 项目名单以本机 `data/projects.json` 为准；用 `configure_project.bat` 逐个登记明确授权的 Git 根目录，随后重启服务。不会自动扫描或开放整个 `agentv2`。
+- 本地调用：`start_stdio.bat` 或 `start_http.bat`。
+- 网页 ChatGPT：先按 [连接说明](CONNECT_CHATGPT_PRO.md) 配置隧道，再运行 `start_chatgpt.bat`。隧道会启动 stdio MCP 子进程，不必同时启动 HTTP 服务。
+- 本机的 `.venv/`、`.runtime/`、`data/projects.json` 被 Git 忽略。隧道密钥使用 Windows DPAPI 加密，只由当前 Windows 用户解密后传入隧道子进程，不进入 Git 或 MCP 快照。
+- 验证命令：`.venv\Scripts\python.exe scripts\self_test.py`、`scripts\mcp_protocol_test.py`；登记本项目后可再运行 `scripts\transport_test.py` 验证真实 stdio/HTTP 和分页读取。测试临时目录位于项目内。
+
+需求来源：[复刻项目脑MCP方案](https://chatgpt.com/c/6aac19e1-44a4-83e8-9291-f2133d4ab8b2)，原始参考帖：[Khazix0918](https://x.com/Khazix0918/status/2099873865988247870)。本次直接核对了对话与代码，参考帖本次访问返回 403，不将历史助手对该帖的描述当成独立核实。
 
 ## 两端职责
 
@@ -142,21 +158,6 @@ http://127.0.0.1:8765/mcp
 ```
 
 MCP 自己不做重要性排序、不做总结、不做 semantic search。
-
-## v0.2 → v0.3 删除了什么
-
-以下能力全部移除：
-
-- Workspace 根目录读取
-- area 白名单
-- Agent V2 全局扫描
-- 全目录文本搜索
-- 自动发现嵌套 Git 仓库
-- 日志错误扫描
-- 测试结果发现
-- Memory / Docs / Skills 等特殊区域概念
-
-原因不是做不到，而是这些能力不属于当前真实目标。
 
 ## 安全边界
 

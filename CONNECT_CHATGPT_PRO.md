@@ -1,17 +1,34 @@
-# ChatGPT / Remote MCP 接入边界
+# 将本地项目连接到 ChatGPT
 
-Project Brain MCP v0.3 只负责把**明确登记的本地 Git 项目**作为只读数据源提供给远程 AI。
+本机项目位置：`E:\agentv2\workbench\projects\project-brain-mcp`。本服务只读取 `data/projects.json` 中明确登记的 Git 仓库；该配置是项目名单的唯一维护位置，不会自动开放整个 `agentv2`。
 
-本机：
+## 本机启动与停止
 
-```text
-registered Git project
-  -> Project Brain MCP
-  -> stdio 或 http://127.0.0.1:8765/mcp
-```
+1. 首次安装隧道客户端时运行 `install_tunnel.bat`；当前电脑已安装。
+2. 运行 `configure_tunnel.bat`，填写 Platform 的 Tunnel ID 和运行 API key。密钥输入不回显，使用当前 Windows 用户的 DPAPI 加密保存；不要把密钥放进文档或 Git。更换密钥时在项目目录运行 `configure_tunnel.bat --replace-key`。
+3. 双击 `start_chatgpt.bat` 并保持窗口运行。它会启动官方 tunnel-client 和本项目的 stdio MCP 子进程，无须再启动 HTTP 服务。按 Ctrl+C 停止。
+4. 双击 `status_tunnel.bat`：只有 `openai_polling_connected: true` 才表示近期真正完成了 OpenAI 轮询。仅 `doctor` 通过或本地 `ready` 不足以证明云端已连通。
 
-网页 ChatGPT 需要访问本机时，应通过 OpenAI 当前支持的远程 MCP / Secure MCP Tunnel 路径连接本机 localhost MCP。不要直接把 8765 暴露到公网。
+启动器保留显式 HTTP/HTTPS 代理环境变量；没有设置时沿用 Windows 系统代理，不修改系统代理配置。关闭代理软件后，依赖该代理的连接会失败。
 
-v0.3 不需要服务器才能工作。只有当你要求电脑关机后仍能访问本地项目时，才需要另行考虑常驻主机。
+本机配置、密钥和运行地址位于项目的 `.runtime/tunnel/`，已被 Git 忽略，也不进入 MCP 文件清单和快照。DPAPI 绑定 Windows 用户；换用户或机器后需重新运行配置入口。当前没有安装开机自启或系统服务，电脑关机后连接不可用。
 
-推荐远程模型在重大规划任务开始时调用 `read_project_snapshot`，持续翻页直到 `complete=true`，再开始需要完整项目事实的推理。
+## ChatGPT 网页配置
+
+在 [Platform 隧道管理](https://platform.openai.com/settings/organization/tunnels) 创建或复用隧道，关联 Personal 组织和目标 ChatGPT workspace。运行密钥需要 Tunnels Read + Use；创建、修改隧道需要 Read + Manage。
+
+先在 ChatGPT 的「设置 → 安全与登录」打开开发者模式。在本地客户端运行期间打开 [ChatGPT Plugins](https://chatgpt.com/plugins)，点击「＋」创建开发者模式应用，Connection 选择 Tunnel，然后选择 Project Brain MCP 或填写对应 Tunnel ID。若无创建入口，先核对该工作区的开发者模式权限。
+
+启用应用后发送：
+
+> 调用 list_projects，然后读取 project-brain-mcp 的项目快照，使用同一个 snapshot_id 持续翻页直到 complete=true，最后说明你读到了什么。
+
+这一步成功，才说明 ChatGPT 到本机项目的完整链路可用。要添加其他项目，使用 `configure_project.bat` 明确登记各自 Git 根目录并重启服务。
+
+## 费用与当前验证边界
+
+API key 在此用于隧道身份验证。本地程序没有调用模型推理 API，也不会充值。ChatGPT 内的模型使用仍受其套餐和额度约束；官方隧道文档未明确承诺独立收费政策或零余额的普遍可用性。
+
+2026-09-20 本机实际验证：隧道元数据返回 HTTP 200，工作区关联正确，真实轮询成功；此过程没有遇到余额要求。此结果不是所有账户的收费承诺。用户已确认 ChatGPT 应用创建成功；隧道实际收到 tools/list 请求并以 HTTP 200 完成响应，证明 ChatGPT 已发现本地工具。聊天中调用项目读取并完成所有分页仍待首次使用验证。
+
+官方依据：[Secure MCP Tunnel](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels)。

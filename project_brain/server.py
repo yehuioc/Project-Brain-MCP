@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 
 from mcp.server import MCPServer
+from mcp.types import ToolAnnotations
 from .core import ProjectBridge
 
 
@@ -17,6 +18,10 @@ def default_config_path() -> Path:
 
 
 bridge = ProjectBridge(default_config_path())
+READ_ONLY = ToolAnnotations(
+    read_only_hint=True, destructive_hint=False,
+    idempotent_hint=True, open_world_hint=False,
+)
 
 mcp = MCPServer(
     "Project Brain MCP - Full Project Bridge",
@@ -28,25 +33,25 @@ mcp = MCPServer(
 )
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 def list_projects() -> dict:
     """List the local Git projects explicitly registered for MCP read access."""
     return bridge.list_projects()
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 def get_project_files(project: str) -> dict:
     """List the complete Git-defined project surface: tracked files plus untracked non-ignored files."""
     return bridge.get_project_files(project)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 def read_file(project: str, path: str, mode: str = "auto") -> dict:
     """Read one Git-visible project file. auto returns text for text files and base64 for binary files."""
     return bridge.read_file(project, path, mode)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 def read_project_snapshot(
     project: str,
     cursor: int = 0,
@@ -57,19 +62,19 @@ def read_project_snapshot(
     return bridge.read_project_snapshot(project, cursor, max_chars, snapshot_id)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 def get_local_git_status(project: str) -> dict:
     """Read current branch, HEAD, working-tree status, and local ahead/behind information without fetching from the network."""
     return bridge.get_local_git_status(project)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 def get_local_diff(project: str, max_chars: int = 120000) -> dict:
     """Read current unstaged/staged diffs plus the list of untracked non-ignored files."""
     return bridge.get_local_diff(project, max_chars)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 def get_local_commits(project: str, limit: int = 50) -> dict:
     """Read commits ahead of the locally stored upstream tracking ref; if no upstream exists, return recent local history with that limitation stated."""
     return bridge.get_local_commits(project, limit)

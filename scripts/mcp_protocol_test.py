@@ -31,6 +31,9 @@ async def run() -> None:
             raise AssertionError(f"Missing MCP tools: {sorted(missing)}")
         if extra:
             raise AssertionError(f"Unexpected legacy MCP tools remain: {sorted(extra)}")
+        assert all(tool.annotations and tool.annotations.read_only_hint
+                   and tool.annotations.destructive_hint is False
+                   for tool in listed.tools), "Every tool must advertise read-only access"
         result = await client.call_tool("list_projects", {})
         if result.is_error:
             raise AssertionError(f"list_projects MCP call failed: {result.content}")

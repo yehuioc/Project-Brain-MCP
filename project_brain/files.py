@@ -18,10 +18,10 @@ def candidate_path(project: Project, relative_path: str) -> Path:
     if not relative_path or relative_path in {".", ".."}:
         raise ValueError("A project-relative file path is required")
     raw = relative_path.replace("\\", "/")
-    if raw.startswith("/"):
+    if raw.startswith("/") or Path(raw).drive:
         raise ValueError("Absolute paths are not allowed")
     parts = Path(raw).parts
-    if any(part in {"..", ".git"} for part in parts):
+    if any(part.casefold() in {"..", ".git"} for part in parts):
         raise ValueError("Path traversal and direct .git access are not allowed")
     return project.root.joinpath(*parts)
 
@@ -29,7 +29,9 @@ def candidate_path(project: Project, relative_path: str) -> Path:
 def safe_path(project: Project, relative_path: str) -> Path:
     path = candidate_path(project, relative_path)
     try:
-        path.resolve(strict=False).relative_to(project.root)
+        resolved = path.resolve(strict=False).relative_to(project.root)
+        if any(part.casefold() == ".git" for part in resolved.parts):
+            raise ValueError("Direct or linked .git access is not allowed")
     except (OSError, ValueError):
         raise ValueError("Path escapes the configured project root")
     return path
@@ -71,6 +73,7 @@ def visible_files(project: Project) -> list[dict[str, Any]]:
             items.append(item)
             continue
         try:
+            safe_path(project, rel)
             path.resolve(strict=True).relative_to(project.root)
         except (OSError, ValueError):
             item.update({"kind": "blocked-link", "size": None, "sha256": None})
@@ -91,8 +94,9 @@ def visible_files(project: Project) -> list[dict[str, Any]]:
 
 
 def read_visible_file(project: Project, relative_path: str, mode: str, max_text: int, max_binary: int) -> dict[str, Any]:
+    safe_path(project, relative_path)
     files = {item["path"]: item for item in visible_files(project)}
-    rel = relative_path.replace("\\", "/").lstrip("/")
+    rel = relative_path.replace("\\", "/")
     if rel not in files:
         raise ValueError("File is not part of the Git-defined project surface")
     meta = files[rel]

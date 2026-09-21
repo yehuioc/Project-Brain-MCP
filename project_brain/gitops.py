@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -8,7 +9,8 @@ from typing import Any
 def run_git(root: Path, args: list[str], timeout: int = 15) -> dict[str, Any]:
     try:
         cp = subprocess.run(
-            ["git", "-C", str(root), *args],
+            ["git", "-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false", "-C", str(root), *args],
+            env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
             capture_output=True,
             text=False,
             timeout=timeout,
@@ -65,8 +67,8 @@ def local_status(root: Path) -> dict[str, Any]:
 
 def local_diff(root: Path, max_chars: int = 120_000) -> dict[str, Any]:
     max_chars = max(2_000, min(int(max_chars), 500_000))
-    unstaged = git_text(root, ["diff", "--no-ext-diff", "--unified=3", "--"])
-    staged = git_text(root, ["diff", "--cached", "--no-ext-diff", "--unified=3", "--"])
+    unstaged = git_text(root, ["diff", "--no-ext-diff", "--no-textconv", "--unified=3", "--"])
+    staged = git_text(root, ["diff", "--cached", "--no-ext-diff", "--no-textconv", "--unified=3", "--"])
     untracked = run_git(root, ["ls-files", "-z", "--others", "--exclude-standard"])
     untracked_files = [
         p.decode("utf-8", errors="surrogateescape").replace("\\", "/")
@@ -78,7 +80,7 @@ def local_diff(root: Path, max_chars: int = 120_000) -> dict[str, Any]:
         "unstaged_diff": unstaged["stdout"][:half] if unstaged["ok"] else None,
         "staged_diff": staged["stdout"][:max_chars - half] if staged["ok"] else None,
         "untracked_files": sorted(untracked_files),
-        "truncated": len(combined) > max_chars,
+        "truncated": len(unstaged["stdout"]) > half or len(staged["stdout"]) > max_chars - half,
     }
 
 
