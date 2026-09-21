@@ -9,3 +9,5 @@ class Project:
     name: str
     root: Path
     description: str = ""
+    source: str = "git"
+    exclude: tuple[str, ...] = ()

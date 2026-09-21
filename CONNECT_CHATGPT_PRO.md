@@ -23,12 +23,12 @@
 
 > 调用 list_projects，然后读取 project-brain-mcp 的项目快照，使用同一个 snapshot_id 持续翻页直到 complete=true，最后说明你读到了什么。
 
-这一步成功，才说明 ChatGPT 到本机项目的完整链路可用。要添加其他项目，使用 `configure_project.bat` 明确登记各自 Git 根目录并重启服务。
+这一步成功，才说明 ChatGPT 到本机项目的完整链路可用。要添加其他项目，使用 `configure_project.bat` 明确登记，选择 git 或 directory 类型，再重启服务；无需为每个来源另建隧道。
 
 ## 费用与当前验证边界
 
 API key 在此用于隧道身份验证。本地程序没有调用模型推理 API，也不会充值。ChatGPT 内的模型使用仍受其套餐和额度约束；官方隧道文档未明确承诺独立收费政策或零余额的普遍可用性。
 
-2026-09-20 本机实际验证：隧道元数据返回 HTTP 200，工作区关联正确，真实轮询成功；此过程没有遇到余额要求。此结果不是所有账户的收费承诺。用户已确认 ChatGPT 应用创建成功；隧道实际收到 tools/list 请求并以 HTTP 200 完成响应，证明 ChatGPT 已发现本地工具。聊天中调用项目读取并完成所有分页仍待首次使用验证。
+2026-09-20 本机实际验证：隧道元数据返回 HTTP 200，工作区关联正确，真实轮询成功；此过程没有遇到余额要求。此结果不是所有账户的收费承诺。用户已确认 ChatGPT 应用创建成功；隧道实际收到 tools/list 请求并以 HTTP 200 完成响应，证明 ChatGPT 已发现本地工具。用户随后回传网页端实际读取结果：project-brain-mcp 的完整文本快照已按同一个 snapshot_id 翻页至 complete=true。此历史验证针对当时的 Git 项目读取；新增普通目录能力以当前测试与实际调用为准。
 
 官方依据：[Secure MCP Tunnel](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels)。

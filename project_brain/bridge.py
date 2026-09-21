@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .files import read_visible_file, safe_path, visible_files
+from .directories import directory_snapshot, exclusions, list_directory, read_directory_file
 from .gitops import git_root, git_text, local_commits, local_diff, local_status
 from .model import Project
 
@@ -21,10 +22,23 @@ class ProjectBridge:
         self.max_snapshot_chars = int(sec.get("max_snapshot_chunk_chars", 200_000))
         self.max_text_file_bytes = int(sec.get("max_text_file_bytes", 20_000_000))
         self.max_binary_file_bytes = int(sec.get("max_binary_file_bytes", 20_000_000))
-        self.projects = {
-            raw["name"]: Project(raw["name"], Path(raw["path"]).expanduser().resolve(), raw.get("description", ""))
-            for raw in self.config.get("projects", [])
-        }
+        self.max_snapshot_total_chars = int(sec.get("max_snapshot_total_chars", 50_000_000))
+        self.projects = {}
+        for raw in self.config.get("projects", []):
+            name = raw["name"]
+            source = raw.get("source", "git")
+            patterns = raw.get("exclude", [])
+            if not isinstance(name, str) or not name.strip() or name in self.projects:
+                raise ValueError("Each registered source needs a unique, nonempty name")
+            if source not in {"git", "directory"}:
+                raise ValueError(f"Unknown source type: {source}")
+            if not isinstance(patterns, list) or not all(isinstance(p, str) and p for p in patterns):
+                raise ValueError("exclude must be a list of nonempty path patterns")
+            root = Path(raw["path"]).expanduser()
+            if not root.is_absolute():
+                raise ValueError("Registered paths must be absolute")
+            self.projects[name] = Project(name, root.resolve(), raw.get("description", ""),
+                                          source, tuple(patterns))
 
     def _load_config(self) -> dict[str, Any]:
         if not self.config_path.exists():
@@ -37,25 +51,40 @@ class ProjectBridge:
         project = self.projects[name]
         if not project.root.exists() or not project.root.is_dir():
             raise ValueError(f"Project path unavailable: {project.root}")
-        if git_root(project.root) != project.root:
+        if project.source == "git" and git_root(project.root) != project.root:
             raise ValueError("Configured path must be the Git repository root")
+        return project
+
+    def _git_project(self, name: str) -> Project:
+        project = self._project(name)
+        if project.source != "git":
+            raise ValueError("Git tools are unavailable for directory sources; the parent repository is never inspected")
         return project
 
     def list_projects(self) -> dict[str, Any]:
         out = []
         for p in self.projects.values():
             available = p.root.exists() and p.root.is_dir()
-            is_root = available and git_root(p.root) == p.root
+            is_root = p.source == "git" and available and git_root(p.root) == p.root
             branch = git_text(p.root, ["branch", "--show-current"]) if is_root else {"ok": False}
             out.append({
                 "name": p.name, "path": str(p.root), "description": p.description,
                 "available": available, "git_repository_root": is_root,
                 "branch": branch.get("stdout") if branch.get("ok") else None,
+                "source": p.source,
+                "exclusions": exclusions(p) if p.source == "directory" else None,
+                "git_tools_available": bool(is_root),
             })
         return {"projects": out}
 
-    def get_project_files(self, project_name: str) -> dict[str, Any]:
-        files = visible_files(self._project(project_name))
+    def get_project_files(self, project_name: str, path: str = "", cursor: int = 0,
+                          limit: int = 200) -> dict[str, Any]:
+        project = self._project(project_name)
+        if project.source == "directory":
+            return list_directory(project, path, cursor, limit)
+        if path or cursor:
+            raise ValueError("Directory browsing parameters apply only to directory sources")
+        files = visible_files(project)
         counts: dict[str, int] = {}
         for item in files:
             counts[item["kind"]] = counts.get(item["kind"], 0) + 1
@@ -67,6 +96,9 @@ class ProjectBridge:
 
     def read_file(self, project_name: str, relative_path: str, mode: str = "auto") -> dict[str, Any]:
         project = self._project(project_name)
+        if project.source == "directory":
+            result = read_directory_file(project, relative_path, mode, self.max_text_file_bytes, self.max_binary_file_bytes)
+            return {"project": project_name, **result}
         result = read_visible_file(project, relative_path, mode, self.max_text_file_bytes, self.max_binary_file_bytes)
         return {"project": project_name, **result}
 
@@ -108,9 +140,16 @@ class ProjectBridge:
             "blocked_links_listed": blocked_count, "total_chars": len(payload),
         }
 
-    def read_project_snapshot(self, project_name: str, cursor: int = 0, max_chars: int | None = None, snapshot_id: str | None = None) -> dict[str, Any]:
+    def read_project_snapshot(self, project_name: str, cursor: int = 0, max_chars: int | None = None,
+                              snapshot_id: str | None = None, path: str = "") -> dict[str, Any]:
         project = self._project(project_name)
-        current_id, payload, summary = self._build_snapshot(project)
+        if project.source == "directory":
+            payload, summary = directory_snapshot(project, path, self.max_text_file_bytes, self.max_snapshot_total_chars)
+            current_id = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+        else:
+            if path:
+                raise ValueError("Snapshot path selection applies only to directory sources")
+            current_id, payload, summary = self._build_snapshot(project)
         if snapshot_id is not None and snapshot_id != current_id:
             return {
                 "project": project_name, "error": "snapshot_changed",
@@ -131,10 +170,10 @@ class ProjectBridge:
         }
 
     def get_local_git_status(self, project_name: str) -> dict[str, Any]:
-        return {"project": project_name, **local_status(self._project(project_name).root)}
+        return {"project": project_name, **local_status(self._git_project(project_name).root)}
 
     def get_local_diff(self, project_name: str, max_chars: int = 120_000) -> dict[str, Any]:
-        return {"project": project_name, **local_diff(self._project(project_name).root, max_chars)}
+        return {"project": project_name, **local_diff(self._git_project(project_name).root, max_chars)}
 
     def get_local_commits(self, project_name: str, limit: int = 50) -> dict[str, Any]:
-        return {"project": project_name, **local_commits(self._project(project_name).root, limit)}
+        return {"project": project_name, **local_commits(self._git_project(project_name).root, limit)}

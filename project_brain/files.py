@@ -21,6 +21,8 @@ def candidate_path(project: Project, relative_path: str) -> Path:
     if raw.startswith("/") or Path(raw).drive:
         raise ValueError("Absolute paths are not allowed")
     parts = Path(raw).parts
+    if any(":" in part or part.endswith((".", " ")) for part in parts):
+        raise ValueError("Ambiguous Windows paths and alternate data streams are not allowed")
     if any(part.casefold() in {"..", ".git"} for part in parts):
         raise ValueError("Path traversal and direct .git access are not allowed")
     return project.root.joinpath(*parts)

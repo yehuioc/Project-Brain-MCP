@@ -2,187 +2,106 @@
 git_mode: independent
 ---
 
-# Project Brain MCP：本地完整项目只读桥接
+# Project Brain MCP：本地项目与资料库只读桥接
 
-本项目由网页 GPT 生成初版，本地 Codex 负责安装、环境适配与真实验证。MCP 只搬运项目原文，不做搜索、摘要或重要性判断。
+让网页 GPT 读取明确授权的本地项目或资料库，用于讨论、调研和规划。本地 Codex 负责实施、运行、测试与维护。MCP 保留原文，不做摘要、排序或语义搜索，不提供写入和任意命令执行。
 
-它只有一个职责：**让网页端 GPT 对你明确授权的本地 Git 项目获得完整、只读、可验证的当前项目视野。**
+## 两种读取方式
 
-## 本机使用入口
+| 配置 source | 适用范围 | 文件如何确定 |
+|---|---|---|
+| git（旧配置默认值） | 独立 Git 仓库的根目录 | Git 已跟踪文件，加未跟踪且未被忽略的新文件 |
+| directory | 明确授权的普通文件夹、资料库或项目子目录 | 按实际目录读取，使用下述明确排除规则；不调用 Git，不受外层 .gitignore 影响 |
 
-存储位置：`E:\agentv2\workbench\projects\project-brain-mcp`。保留独立上游 Git 历史，来源提交为 `74bcd610d1410595635591bc384a207775c66925`。
+普通目录无需 git init，无需提交或推送。它位于外层 Git 仓库内部也没有关系；其 Git 状态、diff、commit 工具会明确拒绝，防止读到外层仓库的其他内容。git 模式仍只接受仓库根目录。
 
-- 项目名单以本机 `data/projects.json` 为准；用 `configure_project.bat` 逐个登记明确授权的 Git 根目录，随后重启服务。不会自动扫描或开放整个 `agentv2`。
-- 本地调用：`start_stdio.bat` 或 `start_http.bat`。
-- 网页 ChatGPT：先按 [连接说明](CONNECT_CHATGPT_PRO.md) 配置隧道，再运行 `start_chatgpt.bat`。隧道会启动 stdio MCP 子进程，不必同时启动 HTTP 服务。
-- 本机的 `.venv/`、`.runtime/`、`data/projects.json` 被 Git 忽略。隧道密钥使用 Windows DPAPI 加密，只由当前 Windows 用户解密后传入隧道子进程，不进入 Git 或 MCP 快照。
-- 验证命令：`.venv\Scripts\python.exe scripts\self_test.py`、`scripts\mcp_protocol_test.py`；登记本项目后可再运行 `scripts\transport_test.py` 验证真实 stdio/HTTP 和分页读取。测试临时目录位于项目内。
+登记多个来源仅增加可选名单。每次调用都指定 project 名称，互不混读。list_projects 只返回名单和基本信息，不加载各来源正文。同一连接可请求名单内的任意来源；这里没有按聊天划分的独立授权。
 
-需求来源：[复刻项目脑MCP方案](https://chatgpt.com/c/6aac19e1-44a4-83e8-9291-f2133d4ab8b2)，原始参考帖：[Khazix0918](https://x.com/Khazix0918/status/2099873865988247870)。本次直接核对了对话与代码，参考帖本次访问返回 403，不将历史助手对该帖的描述当成独立核实。
+## 安装与启动
 
-## 两端职责
+要求：Python 3.10+；Windows 隧道启动器使用 Python 3.12 和 Windows DPAPI。git 模式需要可调用的 Git，directory 模式不需要 Git。
 
-- 网页 GPT：规划、讨论、联网调研、方案比较、重大功能、大型重构、初版构建。
-- 本地 Codex：拉取代码、本地适配、运行、测试、修 Bug、处理环境/边界、小迭代和长期维护。
-- Project Brain MCP：只把网页 GPT 需要的本地项目事实读出来；不替 GPT 判断什么重要，也不替 Codex做规划。
+1. 运行 install.bat 安装依赖并验证基础功能。
+2. 按下一节登记明确授权的来源。
+3. 本地使用 start_stdio.bat 或 start_http.bat。
+4. 网页 ChatGPT 按 [连接说明](CONNECT_CHATGPT_PRO.md) 配置后运行 start_chatgpt.bat。隧道会启动 stdio MCP 子进程。
 
-## “完整项目”如何定义
+本地配置在 data/projects.json；依赖在 .venv/，隧道配置和 DPAPI 密钥在 .runtime/。这些路径均已忽略，不随 Git 提交。示例配置为空，不会自动开放任何目录。
 
-MCP 不自己维护一套扫描排除规则，而让 Git 定义项目表面：
+## 按授权登记来源
 
-```bash
-git ls-files --cached --others --exclude-standard
-```
+当用户明确提出“把这个项目交给网页 GPT 讨论”或授权读取某个资料目录时，Codex 应先确定准确目录，再登记、重启服务并验证实际读取范围。创建项目本身不构成开放授权。对 memory 等个人资料，只有明确授权的目录或子目录才能登记；上层目录不因子目录授权而自动开放。
 
-也就是：
+交互方式：运行 configure_project.bat，填写名称、完整路径、git 或 directory 类型。
 
-1. 所有已经被 Git 跟踪的文件；
-2. 所有尚未跟踪、但没有被 `.gitignore` 等规则忽略的新文件。
+自动执行时复用同一个脚本，例如：
 
-因此 `node_modules/`、`.venv/`、`dist/`、日志、缓存等如果已经被项目正常 ignore，就不会混进项目快照。
+~~~powershell
+.venv\Scripts\python.exe scripts\configure_project.py --name research-notes --path "E:\资料\研究笔记" --source directory --description "用户明确授权的资料目录"
+~~~
 
-注意：如果你把敏感文件正式纳入 Git 跟踪，它也属于“完整项目”，MCP 会按你的授权读取它。不要把密钥提交进项目。
+项目名称只是一条指向本地路径的映射，不需要在目标目录安装文件。已有名称重复登记到同一路径可更新说明；指向另一条路径或换来源类型会拒绝，避免无意扩大范围。撤销时删除 data/projects.json 中对应条目，再重启。
 
-## 7 个只读工具
+登记后重启当前 MCP 或隧道，调用 list_projects 确认，再核对文件清单与实际文件。以后同一目录中的新增和修改会在下一次读取时体现；移动路径、改变开放范围时才需改配置。
 
-### `list_projects()`
-列出你明确登记给 MCP 的本地 Git 项目。
+## 网页端怎样读取
 
-### `get_project_files(project)`
-返回当前项目的完整 Git 可见文件清单，并标明：tracked/untracked、text/binary、大小和 SHA-256。
+代码项目可直接读取全部文本快照：
 
-### `read_file(project, path, mode="auto")`
-读取一个项目文件。
+~~~text
+list_projects()
+get_project_files(project="my-project")
+read_project_snapshot(project="my-project", cursor=0)
+~~~
 
-- 文本默认返回文本；
-- 二进制默认返回 base64；
-- 不允许读取不属于 Git 定义项目表面的任意路径；
-- 不允许越出项目根目录；
-- 不暴露 `.git` 内部文件。
+普通目录先列当前层级，再进入需要的子目录：
 
-### `read_project_snapshot(project, cursor=0, snapshot_id=...)`
-这是 v0.3 的核心工具。
+~~~text
+get_project_files(project="research-notes")
+get_project_files(project="research-notes", path="某个主题", limit=200)
+read_file(project="research-notes", path="某个主题/文章.md")
+read_project_snapshot(project="research-notes", path="某个主题", cursor=0)
+~~~
 
-它按照稳定文件顺序，把当前项目所有文本内容拼成一个完整 snapshot，再分块交给网页 GPT。网页 GPT 只需持续使用 `next_cursor` 调用，直到：
+目录清单默认每页 200 条，最多 1000 条，用 next_cursor 继续到 complete=true。清单只列直属子项和元数据，不读取全库正文或计算所有文件哈希。单文件读取直接访问指定文件，不扫描其他文件。
 
-```text
-complete: true
-```
+快照会递归读取选定范围的全部合规文本，再分页返回。沿用同一个 project、path、snapshot_id，不断传入 next_cursor，直到 complete=true。普通目录的 path 留空代表整个已登记目录；大资料库通常应选择用户当前需要的子目录。分页中内容变化会返回 snapshot_changed，需重新开始。当前每页仍重建所选范围的快照，没有持久缓存。
 
-就能明确知道这次当前项目文本快照已经读完，而不是“搜了几个文件后假设自己理解了项目”。
+二进制文件会被列出，需精确内容时用 read_file(mode="base64")。git 快照保留二进制哈希；directory 快照只列二进制大小，不为了文本阅读读取或哈希大型音视频，明确返回 binary_hashes_computed=false。读取具体二进制时才计算哈希。
 
-每次快照都有 `snapshot_id`。后续分页调用应把它带回来。如果本地项目在读取过程中发生变化，会返回：
+普通目录的单文本/二进制读取默认上限各 20 MB，文本快照总长度默认上限 5000 万字符。超限会明确报错，不会冒充完整结果；可选更小的子目录。对应 security 配置为 max_text_file_bytes、max_binary_file_bytes、max_snapshot_total_chars。
 
-```text
-error: snapshot_changed
-```
+## 目录模式的明确排除规则
 
-此时应从 cursor=0 重新读取，避免一次规划混入两个不同时间点的代码。
+任何层级下都不读取以下目录：.git、.hg、.svn、.runtime、.venv、venv、node_modules、__pycache__、.pytest_cache、.mypy_cache、.ruff_cache、.obsidian。
 
-二进制文件会出现在 snapshot 清单中，包含大小和 SHA-256，但不会直接把 base64 塞进文本快照；需要精确字节时，再调用 `read_file(..., mode="base64")`。
+任何层级下的 .env、.env.*、*.pem、*.key、*.p12、*.pfx 也排除。来源配置可通过 exclude 字符串数组追加相对路径模式，例如 private/**。匹配不区分大小写，排除目录会排除其后代。当前有效规则也会随 list_projects、目录清单和快照返回。
 
-### `get_local_git_status(project)`
-读取当前 branch、HEAD、working tree 状态，以及相对本地 upstream tracking ref 的 ahead/behind。
+这些是确定的路径规则，并不保证识别所有文档中的敏感内容。正常资料正文按授权原样提供。目录模式不跟随符号链接和 Windows junction，清单将其标为 blocked-link；也不能通过链接绕入排除目录。绝对路径、..、Windows 替代数据流和 .git 访问均拒绝。
 
-它**不会执行 `git fetch`**，不会联网，也不会改变仓库。
+## 只读工具
 
-### `get_local_diff(project)`
-读取尚未 commit 的 staged / unstaged diff，并列出未跟踪但未被 ignore 的新文件。
+- list_projects：列出已登记来源及类型。
+- get_project_files：git 模式返回完整 Git 文件清单；directory 模式按层级分页列目录。
+- read_file：读取指定来源中的一个文件。
+- read_project_snapshot：分页读取整个 git 项目，或 directory 来源中选定目录的完整文本。
+- get_local_git_status：git 项目的本地状态。
+- get_local_diff：git 项目的 staged/unstaged diff 和未跟踪文件名。
+- get_local_commits：git 项目的本地提交；仅基于本机 tracking ref，不主动 fetch。
 
-适合网页 GPT 判断：Codex 刚在本地改了什么。
+所有工具都声明只读。没有写文件、删除、commit、push、部署或任意 shell 接口。Git 子命令关闭外部 diff/textconv、fsmonitor 与可选锁。远端历史与 PR/Issue 使用已有 GitHub 能力。
 
-### `get_local_commits(project)`
-如果项目配置了 upstream，返回本地 HEAD 相对本地 upstream tracking ref 多出来的 commit；如果没有 upstream，则返回最近本地历史，并明确不能判定是否已经 push。
+## 验证
 
-远端 GitHub 历史、PR、Issue 等继续交给 ChatGPT 的 GitHub 连接能力，不在 MCP 里重复实现。
+在项目目录执行：
 
-## 架构
+~~~powershell
+.venv\Scripts\python.exe scripts\self_test.py
+.venv\Scripts\python.exe scripts\directory_test.py
+.venv\Scripts\python.exe scripts\mcp_protocol_test.py
+.venv\Scripts\python.exe scripts\transport_test.py
+~~~
 
-```text
-                网页 GPT
-       规划 / 调研 / 大改 / 初版构建
-            │             │
-            │             └── GitHub：远端历史 / PR / Issue
-            │
-            └── Project Brain MCP（只读）
-                        │
-                        └── 当前本地 Git 项目完整视野
+self_test 验证 Git 工作树、忽略规则、完整分页及只读边界。directory_test 使用隔离目录，验证无需 Git、原文读取、选定目录完整分页、路径与链接越界、未登记来源、父仓库 Git 禁用、大小限制、配置登记和真实 stdio MCP 调用。transport_test 验证已登记的 project-brain-mcp 自身，实际走 stdio 与 HTTP，并核对快照哈希。临时测试内容位于项目 .runtime/tmp/。
 
-                本地 Codex
-       本地适配 / 运行 / 测试 / Bug / 维护
-```
-
-## 安装
-
-要求：Windows + Python 3.10+ + Git。
-
-1. 解压本项目。
-2. 双击 `install.bat`。
-3. 双击 `configure_project.bat`。
-4. 输入一个项目名，例如：
-
-```text
-fortune-light
-```
-
-5. 输入**该 Git 仓库根目录**，例如：
-
-```text
-E:\workbench\fortune-light
-```
-
-6. 可继续重复运行 `configure_project.bat` 登记多个项目。
-7. 双击 `show_config.bat` 检查配置。
-8. 本地 HTTP 模式双击 `start_http.bat`：
-
-```text
-http://127.0.0.1:8765/mcp
-```
-
-也可以通过 `start_stdio.bat` 给本地 MCP Host 使用 stdio。
-
-## 推荐给网页 GPT 的读取流程
-
-要做重大规划/重构时：
-
-```text
-1. list_projects()
-2. get_project_files("fortune-light")
-3. read_project_snapshot("fortune-light", cursor=0)
-4. 持续用 next_cursor + 同一个 snapshot_id 读取
-5. 直到 complete=true
-6. 如需本地未提交变化：get_local_git_status / get_local_diff
-7. 如需本地尚未同步的 commit：get_local_commits
-8. 需要远端历史时，再用 GitHub
-9. 开始规划/调研/重构
-```
-
-MCP 自己不做重要性排序、不做总结、不做 semantic search。
-
-## 安全边界
-
-- 只能访问 `data/projects.json` 中明确登记的 Git 仓库根目录。
-- `../`、绝对路径和 `.git` 内部访问被拒绝。
-- symlink / junction 如果解析到项目根目录外，会被阻断。
-- 只执行固定的只读 Git 子命令；没有任意 shell 接口。
-- 没有写文件、删除文件、commit、push、fetch、部署、SQL。
-- HTTP 默认只监听 `127.0.0.1`。
-
-## 验收
-
-`install.bat` 会跑两层测试：
-
-```text
-SELF_TEST_PASS
-MCP_PROTOCOL_TEST_PASS
-```
-
-`SELF_TEST_PASS` 当前覆盖：Git 跟踪文件、未跟踪非 ignore 文件、ignore 排除、当前工作树内容、binary base64、路径越界、symlink 越界、完整分页 snapshot、本地 status/diff/commit，以及读取过程中项目变化导致 snapshot 失效。
-
-`MCP_PROTOCOL_TEST_PASS` 会检查 MCP 层只暴露 v0.3 的 7 个工具，不残留 v0.2 的 Workspace 工具。
-
-## 当前边界
-
-- Git submodule 在父项目中只作为一个项目条目/目录存在，不自动递归读取子模块仓库；需要时可把子模块本身另行登记为项目。
-- snapshot 面向代码/配置/Markdown 等文本；二进制文件在 snapshot 中保留清单和哈希，精确内容通过 `read_file(mode="base64")` 获取。
-- MCP 不主动 `git fetch`，所以“未推送 commit”只能依据本机已有的 upstream tracking ref 判断；网页端可再用 GitHub 核实远端真实状态。
+原始实现来源：[Project-Brain-MCP](https://github.com/yehuioc/Project-Brain-MCP)。版本沿革由 Git 保存。

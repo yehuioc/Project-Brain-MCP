@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 
 from mcp.server import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 from .core import ProjectBridge
 
@@ -26,29 +27,41 @@ READ_ONLY = ToolAnnotations(
 mcp = MCPServer(
     "Project Brain MCP - Full Project Bridge",
     instructions=(
-        "Read-only bridge to explicitly registered local Git projects. "
-        "Use get_project_files to see the complete Git-defined project surface, or read_project_snapshot repeatedly until complete=true to consume the full current textual project snapshot. "
+        "Read-only bridge to explicitly registered local Git projects and directory sources. "
+        "First use list_projects and select a source by name. Never read unrelated sources. "
+        "Git sources expose the complete Git-defined project surface. For directory sources, get_project_files lists immediate children with path/cursor/limit; it does not consult Git. "
+        "Browse a library and select the requested subdirectory or file; do not snapshot the whole library unless requested. "
+        "Use read_project_snapshot repeatedly with the same project, path and snapshot_id until complete=true for all text in a selected scope. "
+        "Directory sources have no Git tools and never expose ancestor repository history. "
         "The server does not search, summarize, rank importance, write files, run arbitrary shell commands, commit, push, fetch, deploy, or mutate projects."
     ),
 )
 
 
+def call_bridge(method, *args):
+    try:
+        return method(*args)
+    except (ValueError, OSError) as exc:
+        # Expected access/size errors must reach the client, not become generic crashes.
+        raise ToolError(str(exc)) from exc
+
+
 @mcp.tool(annotations=READ_ONLY)
 def list_projects() -> dict:
-    """List the local Git projects explicitly registered for MCP read access."""
-    return bridge.list_projects()
+    """List explicitly registered read-only sources and their source type; does not read document contents."""
+    return call_bridge(bridge.list_projects)
 
 
 @mcp.tool(annotations=READ_ONLY)
-def get_project_files(project: str) -> dict:
-    """List the complete Git-defined project surface: tracked files plus untracked non-ignored files."""
-    return bridge.get_project_files(project)
+def get_project_files(project: str, path: str = "", cursor: int = 0, limit: int = 200) -> dict:
+    """Git: complete tracked + untracked non-ignored file surface. Directory: immediate children of path, paged via next_cursor until complete=true; enter a child directory by passing its path. Directory listings do not read file contents."""
+    return call_bridge(bridge.get_project_files, project, path, cursor, limit)
 
 
 @mcp.tool(annotations=READ_ONLY)
 def read_file(project: str, path: str, mode: str = "auto") -> dict:
-    """Read one Git-visible project file. auto returns text for text files and base64 for binary files."""
-    return bridge.read_file(project, path, mode)
+    """Read one allowed file from the named source. Directory reads bypass Git and access only this file. auto returns text for text files and base64 for binary files."""
+    return call_bridge(bridge.read_file, project, path, mode)
 
 
 @mcp.tool(annotations=READ_ONLY)
@@ -57,27 +70,28 @@ def read_project_snapshot(
     cursor: int = 0,
     max_chars: int | None = None,
     snapshot_id: str | None = None,
+    path: str = "",
 ) -> dict:
-    """Read the full current textual project snapshot in deterministic chunks. Continue with next_cursor until complete=true. Pass snapshot_id on subsequent calls to detect mid-read local changes."""
-    return bridge.read_project_snapshot(project, cursor, max_chars, snapshot_id)
+    """Read a full text snapshot, optionally scoped to path for a directory source. Keep project/path/snapshot_id unchanged while following next_cursor to complete=true. Directory binary entries are listed without reading/hashing all binary bytes. Exclusions and size-limit errors are explicit; no silent truncation."""
+    return call_bridge(bridge.read_project_snapshot, project, cursor, max_chars, snapshot_id, path)
 
 
 @mcp.tool(annotations=READ_ONLY)
 def get_local_git_status(project: str) -> dict:
     """Read current branch, HEAD, working-tree status, and local ahead/behind information without fetching from the network."""
-    return bridge.get_local_git_status(project)
+    return call_bridge(bridge.get_local_git_status, project)
 
 
 @mcp.tool(annotations=READ_ONLY)
 def get_local_diff(project: str, max_chars: int = 120000) -> dict:
     """Read current unstaged/staged diffs plus the list of untracked non-ignored files."""
-    return bridge.get_local_diff(project, max_chars)
+    return call_bridge(bridge.get_local_diff, project, max_chars)
 
 
 @mcp.tool(annotations=READ_ONLY)
 def get_local_commits(project: str, limit: int = 50) -> dict:
     """Read commits ahead of the locally stored upstream tracking ref; if no upstream exists, return recent local history with that limitation stated."""
-    return bridge.get_local_commits(project, limit)
+    return call_bridge(bridge.get_local_commits, project, limit)
 
 
 def main() -> None:

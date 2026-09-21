@@ -5,5 +5,5 @@ if not exist .venv\Scripts\python.exe (
   pause
   exit /b 1
 )
-.venv\Scripts\python.exe scripts\configure_project.py
+.venv\Scripts\python.exe scripts\configure_project.py %*
 pause
